@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ciallo～(∠・ω< )⌒★</title>
+    <style>
+        :root {
+            --grid-gap: 10px;
+            --column-count: 4;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #f0f2f5;
+            padding: 20px;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+
+        .gallery {
+            display: grid;
+            grid-template-columns: repeat(var(--column-count), 1fr);
+            gap: var(--grid-gap);
+            padding: var(--grid-gap);
+            margin-top: 60px;
+        }
+
+        .image-card {
+            position: relative;
+            padding-bottom: 100%;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease;
+            cursor: pointer;
+        }
+
+        .image-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .image-card img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.9);
+            z-index: 1000;
+            padding: 20px;
+        }
+
+        .modal.active {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal img {
+            max-width: 90%;
+            max-height: 90vh;
+            object-fit: contain;
+        }
+
+        .close-btn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            color: white;
+            font-size: 30px;
+            cursor: pointer;
+        }
+
+        @media (max-width: 1200px) {
+            :root { --column-count: 3; }
+        }
+
+        @media (max-width: 768px) {
+            :root { --column-count: 2; }
+        }
+
+        @media (max-width: 480px) {
+            :root { --column-count: 1; }
+        }
+
+        .loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 1.2rem;
+            color: #666;
+        }
+
+        .size-info {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 1;
+        }
+
+        .image-card:hover .size-info {
+            opacity: 1;
+        }
+
+        /* 添加分页样式 */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(5px);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            z-index: 100;
+        }
+
+        .pagination button {
+            padding: 8px 16px;
+            border: none;
+            background: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            color: #333;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+
+        .pagination button:hover:not(:disabled) {
+            background: var(--primary-color);
+            color: white;
+            transform: translateY(-2px);
+        }
+
+        .pagination button:disabled {
+            background: #eee;
+            cursor: not-allowed;
+            color: #999;
+        }
+
+        .pagination .current-page {
+            padding: 8px 12px;
+            background: var(--primary-color);
+            color: white;
+            border-radius: 6px;
+            font-weight: 500;
+        }
+
+        /* 添加加载动画 */
+        .loading-spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid var(--primary-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* 修改模态框样式 */
+        .modal.active .pagination {
+            display: none;  /* 预览图片时隐藏分页 */
+        }
+    </style>
+</head>
+<body>
+    <div id="loading" class="loading">
+        <div class="loading-spinner"></div>
+        <div>加载中...</div>
+    </div>
+    <div class="gallery" id="gallery"></div>
+    <div class="pagination" id="pagination"></div>
+    <div class="modal" id="modal">
+        <span class="close-btn" onclick="closeModal()">×</span>
+        <img id="modalImage" src="" alt="">
+    </div>
+
+    <script>
+        const gallery = document.getElementById('gallery');
+        const modal = document.getElementById('modal');
+        const modalImage = document.getElementById('modalImage');
+        const loading = document.getElementById('loading');
+        const pagination = document.getElementById('pagination');
+        
+        let currentPage = 1;
+        let totalPages = 1;
+
+        // 格式化文件大小
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // 添加防抖函数
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        // 添加错误处理函数
+        function handleError(error, customMessage) {
+            console.error(error);
+            loading.innerHTML = `
+                <div>😢 ${customMessage}</div>
+                <button onclick="location.reload()" style="margin-top: 10px; padding: 5px 10px;">
+                    重试
+                </button>
+            `;
+        }
+
+        // 修改分页控件函数
+        function updatePagination() {
+            pagination.innerHTML = '';
+            
+            // 添加总数显示
+            const totalInfo = document.createElement('span');
+            totalInfo.style.marginRight = '20px';
+            totalInfo.style.color = '#666';
+            totalInfo.textContent = `共 ${totalPages} 页`;
+            pagination.appendChild(totalInfo);
+            
+            // 首页按钮
+            const firstButton = document.createElement('button');
+            firstButton.textContent = '首页';
+            firstButton.disabled = currentPage === 1;
+            firstButton.onclick = () => loadImages(1);
+            pagination.appendChild(firstButton);
+            
+            // 上一页按钮
+            const prevButton = document.createElement('button');
+            prevButton.textContent = '上一页';
+            prevButton.disabled = currentPage === 1;
+            prevButton.onclick = () => loadImages(currentPage - 1);
+            pagination.appendChild(prevButton);
+            
+            // 页码输入框
+            const pageInput = document.createElement('input');
+            pageInput.type = 'number';
+            pageInput.min = 1;
+            pageInput.max = totalPages;
+            pageInput.value = currentPage;
+            pageInput.style.width = '60px';
+            pageInput.style.padding = '4px';
+            pageInput.style.margin = '0 8px';
+            pageInput.style.textAlign = 'center';
+            pageInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    const page = parseInt(e.target.value);
+                    if (page && page >= 1 && page <= totalPages) {
+                        loadImages(page);
+                    }
+                }
+            });
+            pagination.appendChild(pageInput);
+            
+            // 下一页按钮
+            const nextButton = document.createElement('button');
+            nextButton.textContent = '下一页';
+            nextButton.disabled = currentPage === totalPages;
+            nextButton.onclick = () => loadImages(currentPage + 1);
+            pagination.appendChild(nextButton);
+            
+            // 末页按钮
+            const lastButton = document.createElement('button');
+            lastButton.textContent = '末页';
+            lastButton.disabled = currentPage === totalPages;
+            lastButton.onclick = () => loadImages(totalPages);
+            pagination.appendChild(lastButton);
+        }
+
+        // 优化图片加载
+        function loadImages(page = 1) {
+            const loadingTimeout = setTimeout(() => {
+                loading.style.display = 'block';
+            }, 300);  // 延迟显示加载提示，避免闪烁
+
+            return fetch(`/api/images?page=${page}`)
+                .then(response => {
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data.success) throw new Error(data.message || '加载失败');
+                    
+                    const { images, total, current_page, total_pages } = data.data;
+                    currentPage = current_page;
+                    totalPages = total_pages;
+                    
+                    // 预加载下一页的图片
+                    if (currentPage < totalPages) {
+                        prefetchNextPage(currentPage + 1);
+                    }
+                    
+                    gallery.innerHTML = '';
+                    if (images.length === 0) {
+                        gallery.innerHTML = '<div style="text-align: center; grid-column: 1/-1; padding: 20px;">没有找到图片 😅</div>';
+                        return;
+                    }
+                    
+                    const fragment = document.createDocumentFragment();
+                    images.forEach(image => {
+                        const card = createImageCard(image);
+                        fragment.appendChild(card);
+                    });
+                    
+                    gallery.appendChild(fragment);
+                    updatePagination();
+                })
+                .catch(error => handleError(error, '加载失败，请刷新页面重试'))
+                .finally(() => {
+                    clearTimeout(loadingTimeout);
+                    loading.style.display = 'none';
+                });
+        }
+
+        // 预加载下一页
+        function prefetchNextPage(page) {
+            fetch(`/api/images?page=${page}`).catch(() => {});
+        }
+
+        // 创建图片卡片
+        function createImageCard(image) {
+            const card = document.createElement('div');
+            card.className = 'image-card';
+            
+            const sizeInfo = document.createElement('div');
+            sizeInfo.className = 'size-info';
+            sizeInfo.textContent = formatFileSize(image.size);
+            
+            const img = new Image();
+            img.loading = 'lazy';
+            img.onload = () => img.style.opacity = '1';
+            img.style.opacity = '0';
+            img.style.transition = 'opacity 0.3s';
+            img.src = `/api/images/${image.path}`;
+            img.alt = image.name;
+            
+            img.onerror = () => {
+                img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24"><text x="50%" y="50%" font-size="12" text-anchor="middle" dy=".3em">加载失败</text></svg>';
+                img.style.opacity = '0.5';
+            };
+            
+            card.appendChild(sizeInfo);
+            card.appendChild(img);
+            card.onclick = () => showModal(image.path);
+            
+            return card;
+        }
+
+        // 修改显示大图函数
+        function showModal(imagePath) {
+            modal.classList.add('active');
+            modalImage.src = `/api/images/${imagePath}`;
+            
+            // 添加加载提示
+            modalImage.style.opacity = '0';
+            const loadingIndicator = document.createElement('div');
+            loadingIndicator.className = 'loading-spinner';
+            modal.appendChild(loadingIndicator);
+            
+            modalImage.onload = () => {
+                modalImage.style.opacity = '1';
+                loadingIndicator.remove();
+            };
+            
+            modalImage.onerror = () => {
+                loadingIndicator.remove();
+                modalImage.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24"><text x="50%" y="50%" font-size="12" text-anchor="middle" dy=".3em">图片加载失败</text></svg>';
+            };
+        }
+
+        // 关闭大图
+        function closeModal() {
+            modal.classList.remove('active');
+        }
+
+        // 点击模态框背景关闭
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeModal();
+            }
+        });
+
+        // 修改键盘事件处理
+        document.addEventListener('keydown', (e) => {
+            if (modal.classList.contains('active')) {
+                if (e.key === 'Escape') {
+                    closeModal();
+                }
+            } else {
+                if (e.key === 'ArrowLeft' && currentPage > 1) {
+                    loadImages(currentPage - 1);
+                } else if (e.key === 'ArrowRight' && currentPage < totalPages) {
+                    loadImages(currentPage + 1);
+                }
+            }
+        });
+
+        // 页面加载完成后加载第一页
+        document.addEventListener('DOMContentLoaded', () => loadImages(1));
+
+        // 添加键盘快捷键提示
+        const keyboardTips = document.createElement('div');
+        keyboardTips.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            z-index: 99;
+        `;
+        keyboardTips.innerHTML = '快捷键: ← 上一页 | → 下一页 | ESC 关闭预览';
+        document.body.appendChild(keyboardTips);
+    </script>
+</body>
+</html> 
